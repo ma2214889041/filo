@@ -18,29 +18,27 @@ const ReasonRequestSchema = z.object({
   }),
 });
 
-const SYSTEM_PROMPT = `You are a clinical decision support system for Italian general practitioners evaluating acute pharyngitis.
+// Step C 的 LLM 系统提示：只生成摘要，不做决策
+const SYSTEM_PROMPT = `You are a clinical summarization assistant for Italian general practitioners evaluating acute pharyngitis.
 
-Given a McIsaac/Centor score and patient context, generate:
-1. A concise 2-sentence clinical summary for the GP
-2. A qualitative probability assessment: "likely viral", "uncertain", or "likely bacterial"
+Your ONLY task: generate a concise 2-sentence clinical summary in plain language for the GP, based on the McIsaac score, management band, and patient context provided.
 
-CRITICAL RULES:
-- You must NEVER say "I recommend", "I suggest", or any directive language.
-- Instead, use language like: "Guideline-matched options for this presentation include..."
-- You are surfacing options, NOT making decisions. The clinical decision remains with the physician.
-- Base the probability on the McIsaac score: 0-1 = likely viral, 2-3 = uncertain, 4-5 = likely bacterial.
-- The clinical summary should reference the score and key findings.`;
+CRITICAL WORDING RULES:
+- Never say "I recommend" or "the patient should receive antibiotics"
+- Never make management decisions — those are already determined by the deterministic scoring system
+- Use language like: "Guideline-matched options for GP consideration are listed below."
+- Always include the phrase: "Confirmatory testing recommended where available."
+- Simply summarize the clinical picture. The deterministic system has already mapped score → management.`;
 
-const reasoningResponseSchema = {
+const summaryResponseSchema = {
   type: Type.OBJECT,
   properties: {
-    clinicalSummary: { type: Type.STRING },
-    probability: {
+    clinicalSummary: {
       type: Type.STRING,
-      enum: ["likely viral", "uncertain", "likely bacterial"],
+      description: "A concise 2-sentence clinical summary for the GP in plain language",
     },
   },
-  required: ["clinicalSummary", "probability"],
+  required: ["clinicalSummary"],
 };
 
 export async function POST(request: NextRequest) {
@@ -49,26 +47,29 @@ export async function POST(request: NextRequest) {
     const parsed = ReasonRequestSchema.parse(body);
 
     // Step A: 确定性 McIsaac 评分计算
+    // Step B: 确定性管理映射（都在 calculateMcIsaac 内完成）
     const mcIsaac = calculateMcIsaac(parsed.criteria);
 
-    // Step B: LLM 生成临床摘要
+    // Step C: LLM 仅生成 2 句临床摘要（不做决策）
     const ai = await getGeminiClient();
 
     const userPrompt = `Patient: ${parsed.patientContext.name}, ${parsed.patientContext.age}${parsed.patientContext.sex}, presenting with acute pharyngitis.
 Symptoms: ${parsed.patientContext.symptoms}
 Temperature: ${parsed.patientContext.temperature}°C, Duration: ${parsed.patientContext.daysSick} days
 
-Centor/McIsaac Score: ${mcIsaac.score}/5
+McIsaac Score: ${mcIsaac.score}/5
 Score Breakdown:
-- Tonsillar exudate: ${parsed.criteria.tonsillar_exudate}
-- Tender anterior cervical nodes: ${parsed.criteria.tender_anterior_cervical_nodes}
-- Fever >38°C: ${parsed.criteria.fever_over_38}
-- Absence of cough: ${parsed.criteria.absence_of_cough}
+- Tonsillar exudate: ${parsed.criteria.tonsillar_exudate} (${mcIsaac.breakdown.tonsillarExudate} point)
+- Tender anterior cervical nodes: ${parsed.criteria.tender_anterior_cervical_nodes} (${mcIsaac.breakdown.tenderNodes} point)
+- Fever >38°C: ${parsed.criteria.fever_over_38} (${mcIsaac.breakdown.fever} point)
+- Absence of cough: ${parsed.criteria.absence_of_cough} (${mcIsaac.breakdown.absenceOfCough} point)
 - Age band: ${parsed.criteria.age_band} (modifier: ${mcIsaac.breakdown.ageModifier >= 0 ? "+" : ""}${mcIsaac.breakdown.ageModifier})
 
-Interpretation: ${mcIsaac.interpretationDetail}
+GAS Probability: ${mcIsaac.gasProbability}
+Management Band: ${mcIsaac.managementBand}
+Management Advice: ${mcIsaac.managementAdvice}
 
-Generate a clinical summary and probability assessment.`;
+Generate a 2-sentence clinical summary. Do NOT repeat the management advice — that is shown separately. Focus on summarizing the clinical picture.`;
 
     const response = await ai.models.generateContent({
       model: MODEL_ID,
@@ -76,7 +77,7 @@ Generate a clinical summary and probability assessment.`;
       config: {
         systemInstruction: SYSTEM_PROMPT,
         responseMimeType: "application/json",
-        responseSchema: reasoningResponseSchema,
+        responseSchema: summaryResponseSchema,
         thinkingConfig: { thinkingBudget: 1024 },
       },
     });
@@ -84,7 +85,7 @@ Generate a clinical summary and probability assessment.`;
     const text = response.text ?? "";
     const llmOutput = JSON.parse(text);
 
-    // 构建抗生素选项（使用硬编码数据 + 评分上下文）
+    // 抗生素选项——仅在评分 ≥2 时才有意义，但总是返回给前端，由 UI 根据 managementBand 决定是否显示
     const guidelineMatchedOptions = ANTIBIOTICS.map((ab) => ({
       drugId: ab.id,
       drugName: ab.name,
@@ -94,12 +95,16 @@ Generate a clinical summary and probability assessment.`;
     }));
 
     return NextResponse.json({
+      // Step A 输出
       score: mcIsaac.score,
       breakdown: mcIsaac.breakdown,
-      interpretation: mcIsaac.interpretation,
-      interpretationDetail: mcIsaac.interpretationDetail,
+      // Step B 输出（确定性）
+      managementBand: mcIsaac.managementBand,
+      managementAdvice: mcIsaac.managementAdvice,
+      gasProbability: mcIsaac.gasProbability,
+      // Step C 输出（LLM）
       clinicalSummary: llmOutput.clinicalSummary,
-      probability: llmOutput.probability,
+      // 硬编码选项
       guidelineMatchedOptions,
     });
   } catch (error) {

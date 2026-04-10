@@ -9,15 +9,20 @@ export interface McIsaacResult {
     absenceOfCough: number;
     ageModifier: number;
   };
-  interpretation: "no antibiotic" | "consider test" | "consider antibiotic";
-  interpretationDetail: string;
+  /** 确定性管理建议分级 */
+  managementBand: "symptomatic_only" | "consider_radt" | "radt_or_empiric";
+  /** 面向 GP 的确定性管理指导文本 */
+  managementAdvice: string;
+  /** GAS 概率范围估计（基于文献数据，确定性映射） */
+  gasProbability: string;
 }
 
 /**
- * 确定性计算 McIsaac 评分（修正版 Centor 评分）
+ * Step A: 确定性计算 McIsaac 评分（修正版 Centor 评分）
+ *
  * 基础 Centor (0-4): 每个阳性标准 +1
  * McIsaac 年龄修正: 3-14 岁 +1, 15-44 岁 0, 45+ 岁 -1
- * 总分范围: -1 到 5（但实际临床意义范围 0-5）
+ * 总分范围: -1 到 5
  */
 export function calculateMcIsaac(criteria: CentorCriteria): McIsaacResult {
   const tonsillarExudate = criteria.tonsillar_exudate === true ? 1 : 0;
@@ -32,22 +37,8 @@ export function calculateMcIsaac(criteria: CentorCriteria): McIsaacResult {
   const rawScore = tonsillarExudate + tenderNodes + fever + absenceOfCough + ageModifier;
   const score = Math.max(0, Math.min(5, rawScore));
 
-  let interpretation: McIsaacResult["interpretation"];
-  let interpretationDetail: string;
-
-  if (score <= 1) {
-    interpretation = "no antibiotic";
-    interpretationDetail =
-      "Score 0–1: Low probability of GAS pharyngitis (~1–10%). Symptomatic treatment recommended. Antibiotics not indicated.";
-  } else if (score <= 3) {
-    interpretation = "consider test";
-    interpretationDetail =
-      "Score 2–3: Moderate probability of GAS pharyngitis (~15–35%). Rapid antigen detection test (RADT) or throat culture recommended before deciding on antibiotic therapy.";
-  } else {
-    interpretation = "consider antibiotic";
-    interpretationDetail =
-      "Score 4–5: High probability of GAS pharyngitis (~50–75%). Empirical antibiotic therapy may be considered, or confirm with RADT.";
-  }
+  // Step B: 确定性管理映射（不使用 LLM）
+  const management = getManagementMapping(score);
 
   return {
     score,
@@ -58,7 +49,46 @@ export function calculateMcIsaac(criteria: CentorCriteria): McIsaacResult {
       absenceOfCough,
       ageModifier,
     },
-    interpretation,
-    interpretationDetail,
+    ...management,
+  };
+}
+
+/**
+ * Step B: 确定性管理映射
+ *
+ * 基于 IDSA / ESCMID 指南和 McIsaac 评分：
+ * - Score ≤1: 不需要检测或抗生素
+ * - Score 2-3: 考虑 RADT，不经验性开抗生素
+ * - Score 4-5: GAS 高概率，仍建议 RADT 确认
+ */
+function getManagementMapping(score: number): {
+  managementBand: McIsaacResult["managementBand"];
+  managementAdvice: string;
+  gasProbability: string;
+} {
+  if (score <= 1) {
+    return {
+      managementBand: "symptomatic_only",
+      managementAdvice:
+        "No testing, no antibiotic. Symptomatic treatment only (NSAIDs, fluids, rest).",
+      gasProbability: "~1–10% likelihood of GAS",
+    };
+  }
+
+  if (score <= 3) {
+    return {
+      managementBand: "consider_radt",
+      managementAdvice:
+        "Consider rapid antigen detection test (RADT). Do not prescribe antibiotics empirically. If RADT positive, then guideline-matched antibiotic options below.",
+      gasProbability: "~15–35% likelihood of GAS",
+    };
+  }
+
+  // score 4-5
+  return {
+    managementBand: "radt_or_empiric",
+    managementAdvice:
+      "High likelihood of GAS (~51–53%). Current IDSA guidance still recommends confirmatory RADT before antibiotic. If RADT unavailable or positive, guideline-matched antibiotic options below.",
+    gasProbability: "~51–53% likelihood of GAS",
   };
 }

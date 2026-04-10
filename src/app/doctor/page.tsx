@@ -7,7 +7,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CentorGauge } from "@/components/centor-gauge";
-import { ProbabilityBar } from "@/components/probability-bar";
 import { AntibioticCard } from "@/components/antibiotic-card";
 
 interface DoctorData {
@@ -22,10 +21,10 @@ interface DoctorData {
   criteria: Record<string, unknown>;
   reasoning: {
     score: number;
-    interpretation: string;
-    interpretationDetail: string;
+    managementBand: "symptomatic_only" | "consider_radt" | "radt_or_empiric";
+    managementAdvice: string;
+    gasProbability: string;
     clinicalSummary: string;
-    probability: "likely viral" | "uncertain" | "likely bacterial";
     guidelineMatchedOptions: Array<{
       drugId: string;
       drugName: string;
@@ -34,6 +33,29 @@ interface DoctorData {
       rationale: string;
     }>;
   };
+}
+
+function ManagementBadge({ band }: { band: DoctorData["reasoning"]["managementBand"] }) {
+  switch (band) {
+    case "symptomatic_only":
+      return (
+        <Badge className="bg-score-green text-white text-sm px-3 py-1">
+          Symptomatic Treatment Only
+        </Badge>
+      );
+    case "consider_radt":
+      return (
+        <Badge className="bg-score-yellow text-white text-sm px-3 py-1">
+          Consider RADT Before Antibiotic
+        </Badge>
+      );
+    case "radt_or_empiric":
+      return (
+        <Badge className="bg-score-red text-white text-sm px-3 py-1">
+          RADT Recommended — Antibiotic Options Below
+        </Badge>
+      );
+  }
 }
 
 export default function DoctorPage() {
@@ -82,6 +104,9 @@ export default function DoctorPage() {
       setPrescribing(false);
     }
   }
+
+  const showAntibioticOptions =
+    data && data.reasoning.managementBand !== "symptomatic_only";
 
   if (!data) {
     return (
@@ -141,53 +166,87 @@ export default function DoctorPage() {
           </CardContent>
         </Card>
 
-        {/* 评分 + 概率区域 */}
+        {/* 评分 + 管理建议区域 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 左侧：McIsaac 评分仪表 */}
           <Card>
             <CardContent className="pt-6">
               <CentorGauge score={data.reasoning.score} />
+              <div className="text-center mt-3 text-sm text-muted-foreground">
+                {data.reasoning.gasProbability}
+              </div>
             </CardContent>
           </Card>
 
+          {/* 右侧：确定性管理建议（Step B 输出） */}
           <Card>
-            <CardContent className="pt-6 flex flex-col justify-center">
-              <ProbabilityBar probability={data.reasoning.probability} />
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Management Guidance</CardTitle>
+              <CardDescription>Deterministic mapping based on McIsaac score</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ManagementBadge band={data.reasoning.managementBand} />
+              <p className="text-sm leading-relaxed font-medium">
+                {data.reasoning.managementAdvice}
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* 临床摘要 */}
+        {/* LLM 临床摘要（Step C 输出） */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Clinical Summary</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">Clinical Summary</CardTitle>
+              <Badge variant="outline" className="text-xs">AI-generated</Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm leading-relaxed">{data.reasoning.clinicalSummary}</p>
             <Separator />
-            <div className="text-xs text-muted-foreground">
-              <strong>Score interpretation:</strong> {data.reasoning.interpretationDetail}
-            </div>
+            <p className="text-xs text-muted-foreground italic">
+              Confirmatory testing recommended where available. This summary is AI-generated
+              and does not constitute a management decision.
+            </p>
           </CardContent>
         </Card>
 
-        {/* 抗生素选项 */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4">
-            Guideline-Matched Antibiotic Options
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {data.reasoning.guidelineMatchedOptions.map((option) => (
-              <AntibioticCard
-                key={option.drugId}
-                drugId={option.drugId}
-                rationale={option.rationale}
-                onSelect={setSelectedDrug}
-                selected={selectedDrug === option.drugId}
-                disabled={prescribed}
-              />
-            ))}
+        {/* 抗生素选项——仅在 score ≥ 2 时显示 */}
+        {showAntibioticOptions && (
+          <div>
+            <h2 className="text-lg font-semibold mb-1">
+              Guideline-Matched Antibiotic Options for GP Consideration
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              {data.reasoning.managementBand === "consider_radt"
+                ? "Display conditional on positive RADT result."
+                : "RADT confirmation recommended. If unavailable or positive, options below."}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {data.reasoning.guidelineMatchedOptions.map((option) => (
+                <AntibioticCard
+                  key={option.drugId}
+                  drugId={option.drugId}
+                  rationale={option.rationale}
+                  onSelect={setSelectedDrug}
+                  selected={selectedDrug === option.drugId}
+                  disabled={prescribed}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Score ≤ 1 时显示对症治疗提示 */}
+        {!showAntibioticOptions && (
+          <Alert>
+            <AlertDescription>
+              McIsaac score ≤ 1 — antibiotic options are not indicated for this
+              presentation. Symptomatic treatment (NSAIDs, fluids, rest) is the
+              guideline-matched approach.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* 处方确认 */}
         {selectedDrug && !prescribed && (
