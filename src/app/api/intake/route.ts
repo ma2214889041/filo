@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const parsed = IntakeRequestSchema.parse(body);
 
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     const userPrompt = `Patient information:
 - Name: ${parsed.patientName || "Unknown"}

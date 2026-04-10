@@ -25,7 +25,7 @@ export async function getKV(): Promise<KVStore> {
     // 尝试获取 Cloudflare 环境
     const { getCloudflareContext } = await import("@opennextjs/cloudflare");
     const { env } = await getCloudflareContext();
-    const kv = (env as Record<string, unknown>).PERSANA_KV as KVStore | undefined;
+    const kv = (env as unknown as Record<string, unknown>).PERSANA_KV as KVStore | undefined;
     if (kv) return kv;
   } catch {
     // 不在 Cloudflare 环境中，使用内存 fallback

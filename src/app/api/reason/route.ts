@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const mcIsaac = calculateMcIsaac(parsed.criteria);
 
     // Step B: LLM 生成临床摘要
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     const userPrompt = `Patient: ${parsed.patientContext.name}, ${parsed.patientContext.age}${parsed.patientContext.sex}, presenting with acute pharyngitis.
 Symptoms: ${parsed.patientContext.symptoms}

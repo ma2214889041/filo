@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
 
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     // SSE 流式响应
     const encoder = new TextEncoder();
