@@ -1,18 +1,21 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useI18n, type Locale } from "@/lib/i18n";
 
 interface NavHeaderProps {
   currentPage: "patient" | "doctor" | "followup";
 }
 
-const steps = [
-  { id: "patient" as const, label: "Patient Intake", num: 1 },
-  { id: "doctor" as const, label: "GP Dashboard", num: 2 },
-  { id: "followup" as const, label: "Follow-up", num: 3 },
-];
-
 export function NavHeader({ currentPage }: NavHeaderProps) {
+  const { locale, setLocale, t } = useI18n();
+
+  const steps = [
+    { id: "patient" as const, label: t("nav.patient"), num: 1 },
+    { id: "doctor" as const, label: t("nav.doctor"), num: 2 },
+    { id: "followup" as const, label: t("nav.followup"), num: 3 },
+  ];
+
   const currentIdx = steps.findIndex((s) => s.id === currentPage);
 
   return (
@@ -24,11 +27,11 @@ export function NavHeader({ currentPage }: NavHeaderProps) {
             <span className="text-primary-foreground font-bold text-sm">P</span>
           </div>
           <span className="font-semibold text-primary text-lg hidden sm:inline">
-            Persana Health
+            {t("nav.brand")}
           </span>
         </a>
 
-        {/* 进度步骤 */}
+        {/* Progress steps */}
         <nav className="flex items-center gap-1 sm:gap-2">
           {steps.map((step, i) => (
             <a
@@ -71,6 +74,25 @@ export function NavHeader({ currentPage }: NavHeaderProps) {
             </a>
           ))}
         </nav>
+
+        {/* Language switcher */}
+        <div className="flex items-center gap-1 shrink-0 ml-3">
+          {(["en", "it"] as Locale[]).map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              onClick={() => setLocale(lang)}
+              className={cn(
+                "px-2 py-1 rounded text-xs font-semibold uppercase transition-colors cursor-pointer",
+                locale === lang
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              {lang}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );
