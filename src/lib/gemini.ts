@@ -7,7 +7,11 @@ export async function getGeminiClient(): Promise<GoogleGenAI> {
     const { env } = await getCloudflareContext();
     apiKey = (env as unknown as Record<string, string>).GEMINI_API_KEY;
   } catch {
-    // 本地开发 fallback
+    // ignore — not running on Cloudflare
+  }
+
+  // 本地开发 fallback
+  if (!apiKey) {
     apiKey = process.env.GEMINI_API_KEY;
   }
 
@@ -17,4 +21,4 @@ export async function getGeminiClient(): Promise<GoogleGenAI> {
   return new GoogleGenAI({ apiKey });
 }
 
-export const MODEL_ID = "gemini-2.5-flash";
+export const MODEL_ID = "gemini-3-flash-preview";
