@@ -132,13 +132,8 @@ export default function FollowupPage() {
 
   // --- Derived ---
   const doseLabels = prescription ? getDoseLabels(prescription.dose) : [];
-  const doseCount = prescription
-    ? /TID/i.test(prescription.dose)
-      ? 3
-      : /BID/i.test(prescription.dose)
-        ? 2
-        : 1
-    : 0;
+  // Checklist: 1 checkbox per day (no morning/evening split)
+  const doseCount = prescription ? 1 : 0;
   const totalDays = prescription ? parseDuration(prescription.duration) : 0;
   const startDate = prescription
     ? new Date(prescription.prescribedAt)
@@ -221,11 +216,9 @@ export default function FollowupPage() {
         /* ignore */
       }
     }
-    // Auto-check all days before today
+    // Default all days to checked
     setChecks(
-      Array.from({ length: totalDays }, (_, dayIdx) =>
-        Array(doseCount).fill(dayIdx < elapsedDays)
-      )
+      Array.from({ length: totalDays }, () => Array(doseCount).fill(true))
     );
   }, [seeded, totalDays, doseCount, elapsedDays]);
 
@@ -283,8 +276,9 @@ export default function FollowupPage() {
   }
 
   // --- Feedback ---
-  async function submitFeedback() {
-    if (feedbackRating === 0) return;
+  async function submitFeedback(rating?: number) {
+    const r = rating ?? feedbackRating;
+    if (r === 0) return;
     setFeedbackSending(true);
     try {
       await fetch("/api/feedback", {
@@ -292,7 +286,7 @@ export default function FollowupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patientId: DEMO_PATIENT.id,
-          rating: feedbackRating,
+          rating: r,
           comment: feedbackComment,
           completedDays,
           totalDays,
@@ -471,46 +465,36 @@ export default function FollowupPage() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2 flex-1">
-                      {dayChecks.map((checked, doseIndex) => (
-                        <button
-                          key={doseIndex}
-                          type="button"
-                          onClick={() => toggleCheck(dayIndex, doseIndex)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm transition-all cursor-pointer ${
-                            checked
-                              ? "bg-score-green/10 border-score-green/30 text-score-green"
-                              : "bg-background border-border text-muted-foreground hover:border-primary/30"
+                    <div className="flex-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleCheck(dayIndex, 0)}
+                        className="cursor-pointer p-1"
+                      >
+                        <div
+                          className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                            dayChecks[0]
+                              ? "bg-score-green border-score-green"
+                              : "border-muted-foreground/30"
                           }`}
                         >
-                          <div
-                            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                              checked
-                                ? "bg-score-green border-score-green"
-                                : "border-muted-foreground/30"
-                            }`}
-                          >
-                            {checked && (
-                              <svg
-                                className="w-3 h-3 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={3}
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">
-                            {doseLabels[doseIndex]}
-                          </span>
-                        </button>
-                      ))}
+                          {dayChecks[0] && (
+                            <svg
+                              className="w-3.5 h-3.5 text-white"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={3}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                          )}
+                        </div>
+                      </button>
                     </div>
 
                     <div className="w-8 shrink-0 flex justify-center">
@@ -778,62 +762,28 @@ export default function FollowupPage() {
             </CardHeader>
 
             {!feedbackSent ? (
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-semibold mb-3">
-                    {t("followup.feedbackQuestion")}
-                  </p>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setFeedbackRating(star)}
-                        className="cursor-pointer p-1 transition-transform hover:scale-110"
-                      >
-                        <svg
-                          className={`w-8 h-8 transition-colors ${
-                            star <= feedbackRating
-                              ? "text-score-yellow fill-score-yellow"
-                              : "text-muted-foreground/30"
-                          }`}
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={1.5}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"
-                          />
-                        </svg>
-                      </button>
-                    ))}
-                  </div>
+              <CardContent>
+                <p className="text-sm font-semibold mb-3">
+                  {t("followup.feedbackQuestion")}
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 text-base border-score-green/30 hover:bg-score-green/10 hover:text-score-green"
+                    disabled={feedbackSending}
+                    onClick={() => submitFeedback(5)}
+                  >
+                    {t("followup.feedbackGood")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 text-base border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                    disabled={feedbackSending}
+                    onClick={() => submitFeedback(1)}
+                  >
+                    {t("followup.feedbackBad")}
+                  </Button>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    {t("followup.feedbackComment")}
-                  </label>
-                  <Textarea
-                    rows={3}
-                    placeholder={t("followup.feedbackPlaceholder")}
-                    value={feedbackComment}
-                    onChange={(e) => setFeedbackComment(e.target.value)}
-                    className="resize-none"
-                  />
-                </div>
-
-                <Button
-                  className="w-full"
-                  disabled={feedbackRating === 0 || feedbackSending}
-                  onClick={submitFeedback}
-                >
-                  {feedbackSending
-                    ? t("followup.sending")
-                    : t("followup.sendFeedback")}
-                </Button>
               </CardContent>
             ) : (
               <CardContent>
